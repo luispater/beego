@@ -787,8 +787,37 @@ func (p *ControllerRegister) serveHttp(ctx *beecontext.Context) {
 		goto Admin
 	}
 
-	if routerInfo != nil {
-		if routerInfo.routerType == routerTypeRESTFul {
+	if routerInfo != nil && (routerInfo.routerType != routerTypeHandler) && (routerInfo.routerType != routerTypeRESTFul) {
+		runRouter = routerInfo.controllerType
+		methodParams = routerInfo.methodParams
+		method := r.Method
+		if r.Method == http.MethodPost && ctx.Input.Query("_method") == http.MethodPut {
+			method = http.MethodPut
+		}
+		if r.Method == http.MethodPost && ctx.Input.Query("_method") == http.MethodDelete {
+			method = http.MethodDelete
+		}
+		if m, ok := routerInfo.methods[method]; ok {
+			runMethod = m
+		} else if m, ok = routerInfo.methods["*"]; ok {
+			runMethod = m
+		} else {
+			runMethod = method
+		}
+		ctx.Input.ExecMethod = runMethod
+		ctx.Input.ExecController = runRouter
+	}
+
+	// execute middleware filters
+	if len(p.filters[BeforeExec]) > 0 && p.execFilter(ctx, urlPath, BeforeExec) {
+		goto Admin
+	}
+
+	if routerInfo != nil && ((routerInfo.routerType == routerTypeHandler) || (routerInfo.routerType == routerTypeRESTFul)) {
+		if routerInfo.routerType == routerTypeHandler {
+			isRunnable = true
+			routerInfo.handler.ServeHTTP(ctx.ResponseWriter, ctx.Request)
+		} else if routerInfo.routerType == routerTypeRESTFul {
 			if _, ok := routerInfo.methods[r.Method]; ok {
 				isRunnable = true
 				routerInfo.runFunction(ctx)
@@ -796,34 +825,7 @@ func (p *ControllerRegister) serveHttp(ctx *beecontext.Context) {
 				exception("405", ctx)
 				goto Admin
 			}
-		} else if routerInfo.routerType == routerTypeHandler {
-			isRunnable = true
-			routerInfo.handler.ServeHTTP(ctx.ResponseWriter, ctx.Request)
-		} else {
-			runRouter = routerInfo.controllerType
-			methodParams = routerInfo.methodParams
-			method := r.Method
-			if r.Method == http.MethodPost && ctx.Input.Query("_method") == http.MethodPut {
-				method = http.MethodPut
-			}
-			if r.Method == http.MethodPost && ctx.Input.Query("_method") == http.MethodDelete {
-				method = http.MethodDelete
-			}
-			if m, ok := routerInfo.methods[method]; ok {
-				runMethod = m
-			} else if m, ok = routerInfo.methods["*"]; ok {
-				runMethod = m
-			} else {
-				runMethod = method
-			}
 		}
-	}
-	ctx.Input.ExecMethod = runMethod
-	ctx.Input.ExecController = runRouter
-
-	// execute middleware filters
-	if len(p.filters[BeforeExec]) > 0 && p.execFilter(ctx, urlPath, BeforeExec) {
-		goto Admin
 	}
 
 	// also defined runRouter & runMethod from filter
